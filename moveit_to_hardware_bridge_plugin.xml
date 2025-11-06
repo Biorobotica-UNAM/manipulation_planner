@@ -1,0 +1,9 @@
+<library path="moveit_to_hardware_bridge">
+  <class name="manipulation_planner/MoveItToHardwareBridge"
+         type="MoveItToHardwareBridge"
+         base_class_type="hardware_interface::SystemInterface">
+    <description>
+      Hardware interface bridge for MoveIt to hardware communication
+    </description>
+  </class>
+</library>
