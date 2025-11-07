@@ -3,7 +3,7 @@
     <xacro:arg name="initial_positions_file" default="initial_positions.yaml" />
 
     <!-- Import justina urdf file -->
-    <xacro:include filename="$(find justina_description)/urdf/justina.urdf" />
+    <xacro:include filename="$(find justina_description)/urdf/justina/justina.urdf" />
 
     <!-- Import control_xacro -->
     <xacro:include filename="justina.ros2_control.xacro" />
