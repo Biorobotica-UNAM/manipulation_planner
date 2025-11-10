@@ -5,7 +5,6 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
-find_package(moveit_msgs REQUIRED)
 find_package(moveit_ros_planning_interface REQUIRED)
 find_package(moveit_core REQUIRED)
 find_package(trajectory_msgs REQUIRED)
@@ -80,6 +79,11 @@ install(TARGETS moveit_to_hardware_bridge
 
 # Install plugin description
 install(FILES moveit_to_hardware_bridge_plugin.xml
+  DESTINATION share/${PROJECT_NAME}
+)
+
+install(DIRECTORY
+  srv
   DESTINATION share/${PROJECT_NAME}
 )
 

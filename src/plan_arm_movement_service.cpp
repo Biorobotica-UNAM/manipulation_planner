@@ -2,7 +2,7 @@
 #include "moveit/move_group_interface/move_group_interface.hpp"
 #include "geometry_msgs/msg/pose.hpp"
 #include "tf2/LinearMath/Quaternion.h"
-#include "arms/srv/arm_movement_plan.hpp"
+#include "manipulation_planner/srv/arm_movement_plan.hpp"
 
 class ArmMovementPlanner : public rclcpp::Node {
 public:
@@ -10,7 +10,7 @@ public:
 			move_group(std::shared_ptr<rclcpp::Node>(this, [](auto*){}), "right_arm") {
 		move_group.setPlanningTime(10.0);
 
-		plan_arm_movement_service_ = this->create_service<arms::srv::ArmMovementPlan>("plan_arm_movement", std::bind(&ArmMovementPlanner::planArmMovementServer, this, std::placeholders::_1, std::placeholders::_2));
+		plan_arm_movement_service_ = this->create_service<manipulation_planner::srv::ArmMovementPlan>("plan_arm_movement", std::bind(&ArmMovementPlanner::planArmMovementServer, this, std::placeholders::_1, std::placeholders::_2));
 
 		RCLCPP_INFO(this->get_logger(), "=== Plan Arm Movement Service READY ===");
 	}
@@ -58,8 +58,8 @@ private:
 		return success;
 	}
 
-	void planArmMovementServer(std::shared_ptr<arms::srv::ArmMovementPlan::Request> req,
-			std::shared_ptr<arms::srv::ArmMovementPlan::Response> res) {
+	void planArmMovementServer(std::shared_ptr<manipulation_planner::srv::ArmMovementPlan::Request> req,
+			std::shared_ptr<manipulation_planner::srv::ArmMovementPlan::Response> res) {
 		bool success = false;
 
 		if(!req->pose_name.empty()) {
@@ -76,7 +76,7 @@ private:
 	}
 
 	moveit::planning_interface::MoveGroupInterface move_group;
-	rclcpp::Service<arms::srv::ArmMovementPlan>::SharedPtr plan_arm_movement_service_;
+	rclcpp::Service<manipulation_planner::srv::ArmMovementPlan>::SharedPtr plan_arm_movement_service_;
 };
 
 int main(int argc, char *argv[]) {

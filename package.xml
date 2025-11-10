@@ -18,10 +18,23 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <!-- For generating custom interfaces -->
+  <build_depend>rosidl_default_generators</build_depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+  <member_of_group>rosidl_interface_packages</member_of_group>
+
   <!-- Hardware interface dependencies -->
   <depend>hardware_interface</depend>
   <depend>pluginlib</depend>
   <depend>rclcpp_lifecycle</depend>
+
+  <!-- Message/Service dependencies -->
+  <depend>geometry_msgs</depend>
+  <depend>std_msgs</depend>
+
+  <!-- MoveIt dependencies -->
+  <depend>moveit_ros_planning_interface</depend>
+  <depend>moveit_core</depend>
 
   <exec_depend>moveit_ros_move_group</exec_depend>
   <exec_depend>moveit_kinematics</exec_depend>

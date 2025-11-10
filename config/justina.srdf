@@ -23,6 +23,36 @@
         <joint name="torso_shoulder" value="0"/>
         <joint name="wrist" value="0"/>
     </group_state>
+    <group_state name="model" group="right_arm">
+        <joint name="elbow" value="1.4661"/>
+        <joint name="shoulder_arm_motor" value="-0.4363"/>
+        <joint name="torso_shoulder" value="-0.6283"/>
+        <joint name="wrist" value="0.1571"/>
+    </group_state>
+    <group_state name="pointing_right" group="right_arm">
+        <joint name="elbow" value="1.6406"/>
+        <joint name="shoulder_arm_motor" value="0.9250"/>
+        <joint name="torso_shoulder" value="-0.1047"/>
+        <joint name="wrist" value="0.192"/>
+    </group_state>
+    <group_state name="pointing_down" group="right_arm">
+        <joint name="elbow" value="0.2443"/>
+        <joint name="shoulder_arm_motor" value="-0.2094"/>
+        <joint name="torso_shoulder" value="0.5759"/>
+        <joint name="wrist" value="1.4835"/>
+    </group_state>
+    <group_state name="pointing_front" group="right_arm">
+        <joint name="elbow" value="-0.3141"/>
+        <joint name="shoulder_arm_motor" value="0.4537"/>
+        <joint name="torso_shoulder" value="1.4835"/>
+        <joint name="wrist" value="0.1868"/>
+    </group_state>
+    <group_state name="pointing_left" group="right_arm">
+        <joint name="elbow" value="0.8203"/>
+        <joint name="shoulder_arm_motor" value="-0.8726"/>
+        <joint name="torso_shoulder" value="1.0472"/>
+        <joint name="wrist" value="0.0349"/>
+    </group_state>
     <group_state name="neutral" group="right_gripper">
         <joint name="left_jaw_joint" value="0"/>
         <joint name="right_jaw_joint" value="0"/>
