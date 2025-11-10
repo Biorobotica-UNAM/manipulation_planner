@@ -5,6 +5,51 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
+find_package(moveit_msgs REQUIRED)
+find_package(moveit_ros_planning_interface REQUIRED)
+find_package(moveit_core REQUIRED)
+find_package(trajectory_msgs REQUIRED)
+
+# For generating custom interfaces
+find_package(rosidl_default_generators REQUIRED)
+
+# ============================================
+# Generate custom service interfaces
+# ============================================
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "srv/ArmMovementPlan.srv"
+  DEPENDENCIES geometry_msgs std_msgs
+)
+
+# Get the typesupport target for C++
+rosidl_get_typesupport_target(cpp_typesupport_target
+  ${PROJECT_NAME} rosidl_typesupport_cpp)
+
+# ============================================
+# Executable 1: Arm Movement Planner Service
+# ============================================
+add_executable(arm_movement_planner_node
+  src/plan_arm_movement_service.cpp
+)
+
+ament_target_dependencies(arm_movement_planner_node
+  rclcpp
+  geometry_msgs
+  moveit_ros_planning_interface
+  moveit_core
+  tf2
+  tf2_geometry_msgs
+)
+
+# Link the generated service interface
+target_link_libraries(arm_movement_planner_node "${cpp_typesupport_target}")
+
+# CRITICAL: Ensure service is generated before building executable
+rosidl_get_typesupport_target(cpp_typesupport_target 
+  "${PROJECT_NAME}" "rosidl_typesupport_cpp")
+
+target_link_libraries(arm_movement_planner_node
+  "${cpp_typesupport_target}")
 
 # ============================================
 # Library: MoveIt to Hardware Bridge
@@ -19,6 +64,14 @@ ament_target_dependencies(moveit_to_hardware_bridge
   rclcpp_lifecycle
   hardware_interface
   pluginlib
+)
+
+# ============================================
+# Install targets
+# ============================================
+install(TARGETS
+  arm_movement_planner_node
+  DESTINATION lib/${PROJECT_NAME}
 )
 
 install(TARGETS moveit_to_hardware_bridge
