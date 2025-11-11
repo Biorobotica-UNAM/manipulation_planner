@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- ===================== -->
+  <!-- Generate robot_description -->
+  <!-- ===================== -->
+  <let name="urdf_file"
+         value="$(command 'xacro $(find-pkg-share manipulation_planner)/config/justina.urdf.xacro')"/>
+
+  <!-- Node to publish the robot description -->
+  <node pkg="robot_state_publisher" exec="robot_state_publisher" name="robot_state_publisher" output="screen">
+    <param name="robot_description" value="$(var urdf_file)" />
+  </node>
+
+  <!-- ===================== -->
+  <!-- Start controller_manager (ros2_control_node) -->
+  <!-- ===================== -->
+  <node pkg="controller_manager"
+        exec="ros2_control_node"
+        name="controller_manager"
+        output="screen">
+    <!-- <param name="robot_description" value="$(var urdf_file)"/> -->
+    <param from="$(find-pkg-share manipulation_planner)/config/ros2_controllers.yaml"/>
+  </node>
+
+  <!-- ===================== -->
+  <!-- Spawn controllers -->
+  <!-- ===================== -->
+  <node pkg="controller_manager" exec="spawner"
+        args="joint_state_broadcaster"
+        name="joint_state_broadcaster_spawner"
+        output="screen"/>
+
+  <node pkg="controller_manager" exec="spawner"
+        args="right_arm_controller"
+        name="right_arm_spawner"
+        output="screen"/>
+
+  <node pkg="controller_manager" exec="spawner"
+        args="right_gripper_controller"
+        name="right_gripper_spawner"
+        output="screen"/>
+
+</launch>

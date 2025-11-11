@@ -6,9 +6,14 @@
 
 class ArmMovementPlanner : public rclcpp::Node {
 public:
-	ArmMovementPlanner() : rclcpp::Node("plan_arm_movement_service"),
-			move_group(std::shared_ptr<rclcpp::Node>(this, [](auto*){}), "right_arm") {
-		move_group.setPlanningTime(10.0);
+	ArmMovementPlanner() : rclcpp::Node("arm_movement_planner_node") {
+		;	
+	}
+
+	void initialize() {
+		move_group = std::make_shared<moveit::planning_interface::MoveGroupInterface>(
+            shared_from_this(), "right_arm");
+		move_group->setPlanningTime(10.0);
 
 		plan_arm_movement_service_ = this->create_service<manipulation_planner::srv::ArmMovementPlan>("plan_arm_movement", std::bind(&ArmMovementPlanner::planArmMovementServer, this, std::placeholders::_1, std::placeholders::_2));
 
@@ -33,14 +38,14 @@ private:
 		target_pose.orientation.z = q.z();
 		target_pose.orientation.w = q.w();
 
-		move_group.setPoseTarget(target_pose);
+		move_group->setPoseTarget(target_pose);
 
-		if(static_cast<bool>(move_group.plan(plan))) {
-			move_group.move();
+		if(static_cast<bool>(move_group->plan(plan))) {
+			move_group->move();
 			success = true;
 		}
 
-		move_group.clearPoseTargets();
+		move_group->clearPoseTargets();
 		return success;
 	}
 
@@ -48,10 +53,10 @@ private:
 		bool success = false;
 		moveit::planning_interface::MoveGroupInterface::Plan plan;
 		
-		move_group.setNamedTarget(pose_name);
+		move_group->setNamedTarget(pose_name);
 
-		if(static_cast<bool>(move_group.plan(plan))) {
-			move_group.move();
+		if(static_cast<bool>(move_group->plan(plan))) {
+			move_group->move();
 			success = true;
 		}
 
@@ -75,13 +80,14 @@ private:
 		}
 	}
 
-	moveit::planning_interface::MoveGroupInterface move_group;
+	std::shared_ptr<moveit::planning_interface::MoveGroupInterface> move_group;
 	rclcpp::Service<manipulation_planner::srv::ArmMovementPlan>::SharedPtr plan_arm_movement_service_;
 };
 
 int main(int argc, char *argv[]) {
 	rclcpp::init(argc, argv);
 	auto node = std::make_shared<ArmMovementPlanner>();
+	node->initialize();
 
 	rclcpp::executors::MultiThreadedExecutor executor;
 	executor.add_node(node);
