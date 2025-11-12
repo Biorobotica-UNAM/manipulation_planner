@@ -11,9 +11,6 @@ using CallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface
 class MoveItToHardwareBridge : public hardware_interface::SystemInterface {
 public:
 	CallbackReturn on_init(const hardware_interface::HardwareInfo &/*info*/) override {
-		// if (hardware_interface::SystemInterface::on_init(info) != CallbackReturn::SUCCESS) {
-        //     return CallbackReturn::ERROR;
-        // }
 
 		RCLCPP_INFO(rclcpp::get_logger("MoveItToHardwareBridge"), "Initializing hardware interface");
 
@@ -80,7 +77,7 @@ public:
 		// Also publish for monitoring
 		if (pose_pub) {
 			std_msgs::msg::Float64MultiArray msg;
-			rclcpp::Rate loop_rate(40); // Hz
+			rclcpp::Rate loop_rate(100); // Hz
 
 			// Print debug info_
 			RCLCPP_INFO(rclcpp::get_logger("MoveItToHardwareBridge"), "Publishing command point:");
