@@ -85,6 +85,12 @@ install(FILES moveit_to_hardware_bridge_plugin.xml
 
 pluginlib_export_plugin_description_file(hardware_interface moveit_to_hardware_bridge_plugin.xml)
 
+install(
+  PROGRAMS
+    src/ik_joint_state_publisher.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/launch")
   install(
     DIRECTORY launch
