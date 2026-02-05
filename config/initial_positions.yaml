@@ -1,9 +1,0 @@
-# Default initial positions for justina's ros2_control fake system
-
-initial_positions:
-  elbow: 0
-  left_jaw_joint: 0
-  right_jaw_joint: 0
-  shoulder_arm_motor: 0
-  torso_shoulder: 0
-  wrist: 0
