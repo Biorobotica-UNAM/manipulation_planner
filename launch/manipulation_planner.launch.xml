@@ -1,0 +1,14 @@
+<launch>
+
+  <group>
+    <push_ros_namespace namespace="manipulation_planner" />
+
+    <node
+      pkg="manipulation_planner"
+      exec="right_arm_ik_solver_node"
+      name="right_arm_ik_solver_node"
+      output="screen"
+    />
+  </group>
+
+</launch>
