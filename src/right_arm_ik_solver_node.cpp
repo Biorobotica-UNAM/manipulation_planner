@@ -19,7 +19,7 @@ public:
   : Node("right_arm_ik_solver")
   {
     srv_ = this->create_service<SolveIK>(
-      "/manipulation_planner/solve_right_arm_ik",
+      "solve_right_arm_ik",
       std::bind(&RightArmIKSolver::solveIK, this, _1, _2));
 
     RCLCPP_INFO(this->get_logger(),
