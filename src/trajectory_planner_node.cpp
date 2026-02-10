@@ -15,9 +15,9 @@ public:
       using SolveIK = manipulation_planner_interfaces::srv::SolveRightArmIK;
 
       // Create service with callback group for avoiding deadlock
-      service_cb_group_ = this->create_callback_group(
+      service_cb_group = this->create_callback_group(
           rclcpp::CallbackGroupType::MutuallyExclusive);
-      client_cb_group_ = this->create_callback_group(
+      client_cb_group = this->create_callback_group(
           rclcpp::CallbackGroupType::MutuallyExclusive);
 
       // Service Server
@@ -34,7 +34,7 @@ public:
         client_cb_group);
 
       // Topic Publisher
-      positon_pub = this->create_publisher<std_msgs::msg::Float64MultiArray>(
+      position_pub = this->create_publisher<std_msgs::msg::Float64MultiArray>(
         "/hardware/arms/goal_pose", 10);
 
       waypoints[0].position.x = 0.0;
@@ -57,40 +57,49 @@ private:
     const std::shared_ptr<manipulation_planner_interfaces::srv::PlanTrajectory::Request> req,
     std::shared_ptr<manipulation_planner_interfaces::srv::PlanTrajectory::Response> res)
   {
-    waypoints[3] = res->target_pose.pose;
+    using SolveIK = manipulation_planner_interfaces::srv::SolveRightArmIK;
+    
+    waypoints[3] = req->target_pose.pose;
 
-    for(int i = 0; i < waypoints.size(); i++)
-    {
+    // Process each waypoint
+    for (size_t i = 0; i < waypoints_.size(); i++) {
+      // Wait for service to be available
+      if (!iksolver_client->wait_for_service(std::chrono::seconds(1))) {
+        RCLCPP_WARN(this->get_logger(), "IK solver service not available");
+        res->success = false;
+        return;
+      }
+      
       auto iksolver_req = std::make_shared<SolveIK::Request>();
       iksolver_req->target_pose = waypoints[i];
-
-      auto future = iksolver_client->async_send_request(
-        iksolver_req,
-        [this, response](rclcpp::Client<SolveIK>::SharedFuture future)
-        {
-          try
-          {
-            auto result = future.get();
-
-            if (result->success)
-            {
-              auto message = std_msgs::msg::Float64MultiArray();
-              message.data = result->joint_positions;
-              position_pub->publish(message);
-
-              response->success = true;
-            } else {
-              RCLCPP_ERROR(this->get_logger(), "Service call failed: %s", e.what());
-              response->success = false;
-            }
-          }
-          catch (const std::exception &e)
-          {
-            RCLCPP_ERROR(this->get_logger(), "Service call failed: %s", e.what());
-          }
+      
+      // Synchronous call (requires MultiThreadedExecutor or callback groups)
+      auto future = iksolver_client->async_send_request(iksolver_req);
+      
+      // Wait for result
+      if (rclcpp::spin_until_future_complete(this->get_node_base_interface(), future) ==
+          rclcpp::FutureReturnCode::SUCCESS)
+      {
+        auto result = future.get();
+        if (result->success) {
+          auto message = std_msgs::msg::Float64MultiArray();
+          message.data = result->joint_positions;
+          position_pub->publish(message);
+          
+          RCLCPP_INFO(this->get_logger(), "Published waypoint %zu", i);
+        } else {
+          RCLCPP_ERROR(this->get_logger(), "IK solver failed for waypoint %zu", i);
+          res->success = false;
+          return;
         }
-      );
+      } else {
+        RCLCPP_ERROR(this->get_logger(), "Failed to call IK service for waypoint %zu", i);
+        res->success = false;
+        return;
+      }
     }
+    
+    res->success = true;
   }
 
   rclcpp::Service<manipulation_planner_interfaces::srv::PlanTrajectory>::SharedPtr srv;
@@ -100,7 +109,7 @@ private:
   rclcpp::CallbackGroup::SharedPtr client_cb_group;
 
   std::array<geometry_msgs::msg::Pose, 4> waypoints; 
-}
+};
 
 int main(int argc, char **argv)
 {
