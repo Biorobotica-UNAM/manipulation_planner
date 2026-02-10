@@ -29,10 +29,20 @@ ament_target_dependencies(right_arm_ik_solver_node
   manipulation_planner_interfaces
 )
 
+add_executable(trajectory_planner_node
+  src/trajectory_planner_node.cpp
+)
+
+ament_target_dependencies(trajectory_planner_node
+  rclcpp
+  geometry_msgs
+  manipulation_planner_interfaces
+)
+
 # -----------------------------
 # Install
 # -----------------------------
-install(TARGETS right_arm_ik_solver_node
+install(TARGETS right_arm_ik_solver_node trajectory_planner_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
