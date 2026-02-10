@@ -62,7 +62,7 @@ private:
     waypoints[3] = req->target_pose.pose;
 
     // Process each waypoint
-    for (size_t i = 0; i < waypoints_.size(); i++) {
+    for (size_t i = 0; i < waypoints.size(); i++) {
       // Wait for service to be available
       if (!iksolver_client->wait_for_service(std::chrono::seconds(1))) {
         RCLCPP_WARN(this->get_logger(), "IK solver service not available");
@@ -71,7 +71,7 @@ private:
       }
       
       auto iksolver_req = std::make_shared<SolveIK::Request>();
-      iksolver_req->target_pose = waypoints[i];
+      iksolver_req->target_pose.pose = waypoints[i];
       
       // Synchronous call (requires MultiThreadedExecutor or callback groups)
       auto future = iksolver_client->async_send_request(iksolver_req);
@@ -116,7 +116,7 @@ int main(int argc, char **argv)
   rclcpp::init(argc, argv);
   
   rclcpp::executors::MultiThreadedExecutor executor;
-  executor.add_node(std::make_shared<TrajectoryPlanner>())
+  executor.add_node(std::make_shared<TrajectoryPlanner>());
   executor.spin();
 
   rclcpp::shutdown();
