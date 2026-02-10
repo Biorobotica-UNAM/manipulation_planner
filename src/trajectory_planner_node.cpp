@@ -54,8 +54,8 @@ public:
 
 private:
   void planArmTrajectory(
-    const std::shared_ptr<PlanTrajectory::Request> req,
-    std::shared_ptr<PlanTrajectory::Response> res)
+    const std::shared_ptr<manipulation_planner_interfaces::srv::PlanTrajectory::Request> req,
+    std::shared_ptr<manipulation_planner_interfaces::srv::PlanTrajectory::Response> res)
   {
     waypoints[3] = res->target_pose.pose;
 
