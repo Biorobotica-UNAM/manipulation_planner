@@ -40,14 +40,17 @@ public:
       waypoints[0].position.x = 0.0;
       waypoints[0].position.y = 0.0;
       waypoints[0].position.z = 0.8;
+      waypoints[0].orientation.w = 1.0;
 
       waypoints[1].position.x = 0.25;
       waypoints[1].position.y = 0.0;
       waypoints[1].position.z = 1.0;
+      waypoints[1].orientation.w = 1.0;
 
       waypoints[2].position.x = 0.4;
       waypoints[2].position.y = 0.0;
       waypoints[2].position.z = 1.0;
+      waypoints[2].orientation.w = 1.0;
 
       RCLCPP_INFO(this->get_logger(), "Trajectory plan node READY");
     }
@@ -115,8 +118,10 @@ int main(int argc, char **argv)
 {
   rclcpp::init(argc, argv);
   
+  auto node = std::make_shared<TrajectoryPlanner>();
+
   rclcpp::executors::MultiThreadedExecutor executor;
-  executor.add_node(std::make_shared<TrajectoryPlanner>());
+  executor.add_node(node);
   executor.spin();
 
   rclcpp::shutdown();
