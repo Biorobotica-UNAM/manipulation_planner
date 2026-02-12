@@ -5,7 +5,7 @@ This repository provides a ROS 2 package for right arm manipulation planning in 
 The right arm IK solver uses a simplified 2-link planar model with the following parameters:
 * *L1*: 0.216 m 
 * *L2*: 0.37 m 
-* *Shoulder height: 1.07 m
+* *Shoulder height*: 1.07 m
 
 The trajectory planner generates fixed intermediate waypoints and appends the requested target pose as the final waypoint.
 
