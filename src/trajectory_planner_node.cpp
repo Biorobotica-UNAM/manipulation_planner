@@ -104,7 +104,7 @@ private:
         return;
       }
 
-      rclcpp::sleep_for(std::chrono::seconds(5));
+      rclcpp::sleep_for(std::chrono::seconds(2));
     }
     
     res->success = true;
