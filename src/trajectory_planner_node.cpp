@@ -1,3 +1,5 @@
+#include <chrono>
+
 #include "rclcpp/rclcpp.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/pose.hpp"
@@ -101,6 +103,8 @@ private:
         res->success = false;
         return;
       }
+
+      rclcpp::sleep_for(std::chrono::seconds(5));
     }
     
     res->success = true;
