@@ -79,9 +79,10 @@ private:
       // Synchronous call (requires MultiThreadedExecutor or callback groups)
       auto future = iksolver_client->async_send_request(iksolver_req);
       
+      auto status = future.wait_for(std::chrono::seconds(5));
+
       // Wait for result
-      if (rclcpp::spin_until_future_complete(this->get_node_base_interface(), future) ==
-          rclcpp::FutureReturnCode::SUCCESS)
+      if (status == std::future_status::ready)
       {
         auto result = future.get();
         if (result->success) {
