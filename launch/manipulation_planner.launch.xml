@@ -5,15 +5,8 @@
 
     <node
       pkg="manipulation_planner"
-      exec="right_arm_ik_solver_node"
-      name="right_arm_ik_solver_node"
-      output="screen"
-    />
-
-    <node
-      pkg="manipulation_planner"
-      exec="trajectory_planner_node"
-      name="trajectory_planner_node"
+      exec="manipulation_planner_node"
+      name="manipulation_planner_node"
       output="screen"
     />
   </group>
