@@ -5,6 +5,8 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(manipulation_planner_interfaces REQUIRED)
+find_package(moveit_ros_planning_interface REQUIRED)
+find_package(moveit_core REQUIRED)
 
 add_executable(manipulation_planner_node
   src/manipulation_planner_node.cpp
@@ -14,6 +16,8 @@ ament_target_dependencies(manipulation_planner_node
   rclcpp
   geometry_msgs
   manipulation_planner_interfaces
+  moveit_ros_planning_interface
+  moveit_core
 )
 
 install(TARGETS manipulation_planner_node
@@ -25,4 +29,3 @@ install(DIRECTORY launch/
 )
 
 ament_package()
-
