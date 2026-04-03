@@ -1,242 +1,205 @@
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
-
 #include <moveit_msgs/srv/get_motion_plan.hpp>
 #include <moveit_msgs/msg/constraints.hpp>
 #include <moveit_msgs/msg/position_constraint.hpp>
 #include <moveit_msgs/msg/orientation_constraint.hpp>
-
 #include <shape_msgs/msg/solid_primitive.hpp>
-
 #include "manipulation_planner_interfaces/srv/plan_trajectory.hpp"
-
 #include <mutex>
 #include <condition_variable>
 
 using std::placeholders::_1;
 using std::placeholders::_2;
-
 using PlanTrajectory = manipulation_planner_interfaces::srv::PlanTrajectory;
-using GetMotionPlan = moveit_msgs::srv::GetMotionPlan;
+using GetMotionPlan  = moveit_msgs::srv::GetMotionPlan;
 
 class ManipulationPlannerNode : public rclcpp::Node
 {
 public:
-    ManipulationPlannerNode()
-    : Node("manipulation_planner_node")
+    ManipulationPlannerNode() : Node("manipulation_planner_node")
     {
         RCLCPP_INFO(this->get_logger(), "Initializing manipulation_planner_node...");
 
-        // 🔹 Callback groups
         client_cb_group_ = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
-        srv_cb_group_ = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+        srv_cb_group_    = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
 
-        // 🔹 Subscriber
         joint_state_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
-            "/hardware/joint_states",
-            10,
-            std::bind(&ManipulationPlannerNode::jointStateCallback, this, _1)
-        );
+            "/manipulation/joint_states", 10,
+            std::bind(&ManipulationPlannerNode::jointStateCallback, this, _1));
 
-        // 🔹 Cliente MoveIt (sin deprecated)
         plan_client_ = this->create_client<GetMotionPlan>(
-            "/hardware/plan_kinematic_path",
-            rclcpp::ServicesQoS(),
-            client_cb_group_
-        );
+            "/manipulation/plan_kinematic_path",
+            rclcpp::ServicesQoS(), client_cb_group_);
 
-        // 🔹 Servicio propio
         srv_ = this->create_service<PlanTrajectory>(
             "plan_trajectory",
             std::bind(&ManipulationPlannerNode::planTrajectory, this, _1, _2),
-            rclcpp::ServicesQoS(),
-            srv_cb_group_
-        );
+            rclcpp::ServicesQoS(), srv_cb_group_);
 
         RCLCPP_INFO(this->get_logger(), "Manipulation planner ready");
     }
 
 private:
-
-    // ROS
-    rclcpp::Service<PlanTrajectory>::SharedPtr srv_;
-    rclcpp::Client<GetMotionPlan>::SharedPtr plan_client_;
+    rclcpp::Service<PlanTrajectory>::SharedPtr                srv_;
+    rclcpp::Client<GetMotionPlan>::SharedPtr                  plan_client_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_sub_;
+    rclcpp::CallbackGroup::SharedPtr                          client_cb_group_;
+    rclcpp::CallbackGroup::SharedPtr                          srv_cb_group_;
 
-    rclcpp::CallbackGroup::SharedPtr client_cb_group_;
-    rclcpp::CallbackGroup::SharedPtr srv_cb_group_;
-
-    // Estado
     sensor_msgs::msg::JointState last_joint_state_;
     bool joint_state_received_ = false;
 
-    // ===============================
+    std::string tipLink(const std::string& group) const
+    {
+        if (group == "left_arm_group")  return "l_hand_link";
+        if (group == "right_arm_group") return "r_hand_link";
+
+        RCLCPP_WARN(this->get_logger(),
+            "Unknown planning group '%s', defaulting to r_hand_link", group.c_str());
+        return "r_hand_link";
+    }
+
     void jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
     {
-        last_joint_state_ = *msg;
+        last_joint_state_    = *msg;
         joint_state_received_ = true;
     }
 
-    // ===============================
     void planTrajectory(
-        const std::shared_ptr<PlanTrajectory::Request> request,
-        std::shared_ptr<PlanTrajectory::Response> response)
+        const std::shared_ptr<PlanTrajectory::Request>  request,
+        std::shared_ptr<PlanTrajectory::Response>       response)
     {
-        RCLCPP_INFO(this->get_logger(), "Planning request received");
+        const std::string& group = request->planning_group.empty()
+            ? "right_arm_group" : request->planning_group;
+
+        RCLCPP_INFO(this->get_logger(),
+            "Planning request received — group: %s", group.c_str());
 
         if (!joint_state_received_)
         {
             response->success = false;
-            response->message = "No joint_states yet";
+            response->message = "No joint_states received yet";
             return;
         }
 
         if (!plan_client_->wait_for_service(std::chrono::seconds(2)))
         {
             response->success = false;
-            response->message = "MoveIt service unavailable";
+            response->message = "MoveIt planning service unavailable";
             return;
         }
 
-        // ===============================
-        // Construir request MoveIt
-        // ===============================
+        const std::string tip = tipLink(group);
+
         auto srv_req = std::make_shared<GetMotionPlan::Request>();
-        auto &req = srv_req->motion_plan_request;
+        auto& req    = srv_req->motion_plan_request;
 
-        req.group_name = request->planning_group;
-        req.allowed_planning_time = request->planning_time;
+        req.group_name            = group;
+        req.allowed_planning_time = request->planning_time > 0.0 ? request->planning_time : 5.0;
         req.num_planning_attempts = 3;
-
         req.start_state.joint_state = last_joint_state_;
 
-        // Workspace
         req.workspace_parameters.header.frame_id = "base_link";
         req.workspace_parameters.min_corner.x = -2.0;
-        req.workspace_parameters.min_corner.y = -2.0;
-        req.workspace_parameters.min_corner.z = -2.0;
-        req.workspace_parameters.max_corner.x = 2.0;
-        req.workspace_parameters.max_corner.y = 2.0;
-        req.workspace_parameters.max_corner.z = 2.0;
+		req.workspace_parameters.min_corner.y = -2.0;
+		req.workspace_parameters.min_corner.z = -2.0;
+		req.workspace_parameters.max_corner.x = 2.0;
+		req.workspace_parameters.max_corner.y = 2.0;
+		req.workspace_parameters.max_corner.z = 2.0;
 
-        // ===============================
-        // Constraints
-        // ===============================
-        moveit_msgs::msg::Constraints goal;
-
+        // Position constraint
         moveit_msgs::msg::PositionConstraint pos;
-        pos.header = request->target_pose.header;
-        pos.link_name = "r_hand_link";
+        pos.header    = request->target_pose.header;
+        pos.link_name = tip;
+        pos.weight    = 1.0;
 
         shape_msgs::msg::SolidPrimitive sphere;
-        sphere.type = shape_msgs::msg::SolidPrimitive::SPHERE;
+        sphere.type       = shape_msgs::msg::SolidPrimitive::SPHERE;
         sphere.dimensions = {0.02};
-
         pos.constraint_region.primitives.push_back(sphere);
         pos.constraint_region.primitive_poses.push_back(request->target_pose.pose);
-        pos.weight = 1.0;
 
-        goal.position_constraints.push_back(pos);
-
+        // Orientation constraint
         moveit_msgs::msg::OrientationConstraint ori;
-        ori.header = request->target_pose.header;
-        ori.link_name = "r_hand_link";
-        ori.orientation = request->target_pose.pose.orientation;
-
+        ori.header                    = request->target_pose.header;
+        ori.link_name                 = tip;
+        ori.orientation               = request->target_pose.pose.orientation;
         ori.absolute_x_axis_tolerance = 0.1;
         ori.absolute_y_axis_tolerance = 0.1;
         ori.absolute_z_axis_tolerance = 0.1;
-        ori.weight = 1.0;
+        ori.weight                    = 1.0;
 
+        moveit_msgs::msg::Constraints goal;
+        goal.position_constraints.push_back(pos);
         goal.orientation_constraints.push_back(ori);
-
         req.goal_constraints.push_back(goal);
 
-        // ===============================
-        // ASYNC + WAIT (como HRI)
-        // ===============================
         std::mutex mtx;
         std::condition_variable cv;
         bool done = false;
-
         moveit_msgs::srv::GetMotionPlan::Response::SharedPtr result;
 
-        auto callback =
-        [&](rclcpp::Client<GetMotionPlan>::SharedFuture future)
-        {
-            RCLCPP_INFO(this->get_logger(), "MoveIt respondió");
-
-            result = future.get();
-
-            done = true;
-            cv.notify_one();
-        };
-
-        plan_client_->async_send_request(srv_req, callback);
+        plan_client_->async_send_request(srv_req,
+            [&](rclcpp::Client<GetMotionPlan>::SharedFuture future) {
+                result = future.get();
+                done   = true;
+                cv.notify_one();
+            });
 
         std::unique_lock<std::mutex> lock(mtx);
         if (!cv.wait_for(lock,
-            std::chrono::seconds((int)request->planning_time + 5),
-            [&]{ return done; }))
+                std::chrono::seconds((int)req.allowed_planning_time + 5),
+                [&]{ return done; }))
         {
             response->success = false;
             response->message = "Planning timeout";
-            RCLCPP_ERROR(this->get_logger(), "Timeout");
+            RCLCPP_ERROR(this->get_logger(), "Planning timeout");
             return;
         }
 
-        // ===============================
-        // Procesar resultado
-        // ===============================
-        if (!result)
+        if (!result ||
+            result->motion_plan_response.error_code.val !=
+            moveit_msgs::msg::MoveItErrorCodes::SUCCESS)
         {
             response->success = false;
-            response->message = "Null response";
+            response->message = result
+                ? "Planning failed with error code: " +
+                  std::to_string(result->motion_plan_response.error_code.val)
+                : "Null response from planner";
+            RCLCPP_WARN(this->get_logger(), "%s", response->message.c_str());
             return;
         }
 
-        auto &res = result->motion_plan_response;
+        const auto& traj = result->motion_plan_response.trajectory.joint_trajectory;
 
-        if (res.error_code.val != moveit_msgs::msg::MoveItErrorCodes::SUCCESS)
-        {
-            response->success = false;
-            response->message = "Planning failed";
-            return;
-        }
-
-        const auto &traj = res.trajectory.joint_trajectory;
-
-        RCLCPP_INFO(this->get_logger(), "Trajectory points: %lu", traj.points.size());
+        RCLCPP_INFO(this->get_logger(),
+            "Plan found: %zu waypoints, %zu joints",
+            traj.points.size(), traj.joint_names.size());
 
         response->joint_names = traj.joint_names;
-
-        for (const auto &p : traj.points)
+        for (const auto& p : traj.points)
         {
             for (double pos : p.positions)
                 response->waypoints.push_back(pos);
-
             response->timestamps.push_back(
-                p.time_from_start.sec +
-                p.time_from_start.nanosec * 1e-9);
+                p.time_from_start.sec + p.time_from_start.nanosec * 1e-9);
         }
 
         response->success = true;
-        response->message = "OK";
+        response->message = "Plan found: " +
+            std::to_string(traj.points.size()) + " waypoints";
     }
 };
 
-// ===============================
 int main(int argc, char** argv)
 {
     rclcpp::init(argc, argv);
-
-    auto node = std::make_shared<ManipulationPlannerNode>();
-
     rclcpp::executors::MultiThreadedExecutor executor;
+    auto node = std::make_shared<ManipulationPlannerNode>();
     executor.add_node(node);
     executor.spin();
-
     rclcpp::shutdown();
     return 0;
 }
