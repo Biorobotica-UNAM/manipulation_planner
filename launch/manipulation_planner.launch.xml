@@ -1,14 +1,13 @@
+<?xml version="1.0"?>
 <launch>
 
   <group>
-    <push_ros_namespace namespace="manipulation_planner" />
+    <push-ros-namespace namespace="manipulation_planner"/>
 
-    <node
-      pkg="manipulation_planner"
+    <node pkg="manipulation_planner"
       exec="manipulation_planner_node"
       name="manipulation_planner_node"
-      output="screen"
-    />
+      output="screen"/>
   </group>
 
 </launch>
