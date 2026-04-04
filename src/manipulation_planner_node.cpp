@@ -174,6 +174,13 @@ private:
 
         const auto& traj = result->motion_plan_response.trajectory.joint_trajectory;
 
+		if (traj.points.empty())
+		{
+			response->success = false;
+			response->message = "Empty trajectory";
+			return;
+		}
+
         RCLCPP_INFO(this->get_logger(),
             "Plan found: %zu waypoints, %zu joints",
             traj.points.size(), traj.joint_names.size());
@@ -183,9 +190,14 @@ private:
         {
             for (double pos : p.positions)
                 response->waypoints.push_back(pos);
-            response->timestamps.push_back(
-                p.time_from_start.sec + p.time_from_start.nanosec * 1e-9);
         }
+
+		size_t num_joints = traj.joint_names.size();
+		size_t num_points = traj.points.size();
+
+		RCLCPP_INFO(this->get_logger(),
+			"Flattened trajectory: %zu points × %zu joints = %zu values",
+			num_points, num_joints, response->waypoints.size());
 
         response->success = true;
         response->message = "Plan found: " +
