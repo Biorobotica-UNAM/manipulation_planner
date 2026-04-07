@@ -31,12 +31,12 @@ public:
 
         plan_client_ = this->create_client<GetMotionPlan>(
             "/manipulation/plan_kinematic_path",
-            rclcpp::ServicesQoS(), client_cb_group_);
+            rmw_qos_profile_services_default, client_cb_group_);
 
         srv_ = this->create_service<PlanTrajectory>(
             "plan_trajectory",
             std::bind(&ManipulationPlannerNode::planTrajectory, this, _1, _2),
-            rclcpp::ServicesQoS(), srv_cb_group_);
+            rmw_qos_profile_services_default, srv_cb_group_);
 
         RCLCPP_INFO(this->get_logger(), "Manipulation planner ready");
     }
