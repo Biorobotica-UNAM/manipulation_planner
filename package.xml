@@ -1,27 +1,19 @@
 <?xml version="1.0"?>
 <package format="3">
   <name>manipulation_planner</name>
-  <version>0.4.0</version>
+  <version>0.1.0</version>
+  <description>Manipulation planner using MoveIt</description>
+  <maintainer email="marco.soriano5102@comunidad.unam.mx">Marco Soriano</maintainer>
+  <license>BSD</license>
 
-  <description>
-    Right arm inverse kinematics solver for Justina using a deterministic geometric approach.
-  </description>
-
-  <maintainer email="marco.soriano5102@comunidad.unam.mx">
-    Marco Soriano
-  </maintainer>
-
-  <license>Apache-2.0</license>
-
-  <!-- Build system -->
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <!-- Dependencies -->
   <depend>rclcpp</depend>
   <depend>geometry_msgs</depend>
   <depend>manipulation_planner_interfaces</depend>
+  <depend>moveit_ros_planning_interface</depend>
+  <depend>moveit_core</depend>
 
-  <!-- Optional test dependencies -->
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 
@@ -29,4 +21,3 @@
     <build_type>ament_cmake</build_type>
   </export>
 </package>
-
