@@ -53,12 +53,12 @@ private:
 
     std::string tipLink(const std::string& group) const
     {
-        if (group == "left_arm_group")  return "l_hand_link";
-        if (group == "right_arm_group") return "r_hand_link";
+        if (group == "left_arm_group")  return "left_grab_object_link";
+        if (group == "right_arm_group") return "right_grab_object_link";
 
         RCLCPP_WARN(this->get_logger(),
-            "Unknown planning group '%s', defaulting to r_hand_link", group.c_str());
-        return "r_hand_link";
+            "Unknown planning group '%s', defaulting to right_grab_object_link", group.c_str());
+        return "right_grab_object_link";
     }
 
     void jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
