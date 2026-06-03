@@ -9,6 +9,7 @@
 #include "manipulation_planner_interfaces/srv/plan_trajectory.hpp"
 #include <mutex>
 #include <condition_variable>
+#include <memory>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -44,55 +45,76 @@ public:
     }
 
 private:
-    rclcpp::Service<PlanTrajectory>::SharedPtr                srv_;
-    rclcpp::Client<GetMotionPlan>::SharedPtr                  plan_client_;
+    rclcpp::Service<PlanTrajectory>::SharedPtr                    srv_;
+    rclcpp::Client<GetMotionPlan>::SharedPtr                      plan_client_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_sub_;
-    rclcpp::CallbackGroup::SharedPtr                          client_cb_group_;
-    rclcpp::CallbackGroup::SharedPtr                          srv_cb_group_;
+    rclcpp::CallbackGroup::SharedPtr                              client_cb_group_;
+    rclcpp::CallbackGroup::SharedPtr                              srv_cb_group_;
 
     sensor_msgs::msg::JointState last_joint_state_;
-    bool joint_state_received_ = false;
+    bool                         joint_state_received_ = false;
+    std::mutex                   joint_state_mutex_;
 
-    std::string tipLink(const std::string& group, const std::string& requested_tip) const
-	{
-		static const std::unordered_map<std::string, std::unordered_set<std::string>> valid_tips = {
-		    {"left_arm_group",  {"left_grab_object_link",  "left_pinch_object_link"}},
-		    {"right_arm_group", {"right_grab_object_link", "right_pinch_object_link"}},
-		};
+    struct PlanState
+    {
+        std::mutex                                          mtx;
+        std::condition_variable                             cv;
+        bool                                                done = false;
+        moveit_msgs::srv::GetMotionPlan::Response::SharedPtr result;
+    };
 
-		auto group_it = valid_tips.find(group);
-		if (group_it == valid_tips.end())
-		{
-		    RCLCPP_ERROR(this->get_logger(),
-		        "Unknown planning group '%s'. Valid groups: left_arm_group, right_arm_group.",
-		        group.c_str());
-		    return "";
-		}
+    // ─────────────────────────────────────────────────────────────
+    //  tipLink
+    // ─────────────────────────────────────────────────────────────
+    std::string tipLink(const std::string& group,
+                        const std::string& requested_tip) const
+    {
+        static const std::unordered_map<
+            std::string, std::unordered_set<std::string>> valid_tips = {
+            {"left_arm_group",  {"left_grab_object_link",  "left_pinch_object_link"}},
+            {"right_arm_group", {"right_grab_object_link", "right_pinch_object_link"}},
+        };
 
-		const auto& allowed = group_it->second;
-		if (requested_tip.empty() || allowed.find(requested_tip) == allowed.end())
-		{
-		    RCLCPP_ERROR(this->get_logger(),
-		        "Invalid or missing tip_link '%s' for group '%s'. "
-		        "Valid tips for this group: %s.",
-		        requested_tip.c_str(), group.c_str(),
-		        [&]() {
-		            std::string s;
-		            for (const auto& t : allowed) s += t + " ";
-		            return s;
-		        }().c_str());
-		    return "";
-		}
+        auto group_it = valid_tips.find(group);
+        if (group_it == valid_tips.end())
+        {
+            RCLCPP_ERROR(this->get_logger(),
+                "Unknown planning group '%s'. Valid groups: left_arm_group, right_arm_group.",
+                group.c_str());
+            return "";
+        }
 
-		return requested_tip;
-	}
+        const auto& allowed = group_it->second;
+        if (requested_tip.empty() || allowed.find(requested_tip) == allowed.end())
+        {
+            RCLCPP_ERROR(this->get_logger(),
+                "Invalid or missing tip_link '%s' for group '%s'. "
+                "Valid tips for this group: %s.",
+                requested_tip.c_str(), group.c_str(),
+                [&]() {
+                    std::string s;
+                    for (const auto& t : allowed) s += t + " ";
+                    return s;
+                }().c_str());
+            return "";
+        }
 
+        return requested_tip;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    //  jointStateCallback
+    // ─────────────────────────────────────────────────────────────
     void jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
     {
-        last_joint_state_    = *msg;
+        std::lock_guard<std::mutex> lock(joint_state_mutex_);
+        last_joint_state_     = *msg;
         joint_state_received_ = true;
     }
 
+    // ─────────────────────────────────────────────────────────────
+    //  planTrajectory
+    // ─────────────────────────────────────────────────────────────
     void planTrajectory(
         const std::shared_ptr<PlanTrajectory::Request>  request,
         std::shared_ptr<PlanTrajectory::Response>       response)
@@ -101,15 +123,33 @@ private:
             ? "right_arm_group" : request->planning_group;
 
         RCLCPP_INFO(this->get_logger(),
-            "Planning request received — group: %s", group.c_str());
+            "Planning request received — group: %s | tip: %s",
+            group.c_str(), request->tip_link.c_str());
 
-        if (!joint_state_received_)
+        // ── Validate tip ──────────────────────────────────────────
+        const std::string tip = tipLink(group, request->tip_link);
+        if (tip.empty())
         {
             response->success = false;
-            response->message = "No joint_states received yet";
+            response->message = "Invalid tip_link '" + request->tip_link +
+                                "' for group '" + group + "'";
             return;
         }
 
+        // ── Check joint states ────────────────────────────────────
+        sensor_msgs::msg::JointState current_joint_state;
+        {
+            std::lock_guard<std::mutex> lock(joint_state_mutex_);
+            if (!joint_state_received_)
+            {
+                response->success = false;
+                response->message = "No joint_states received yet";
+                return;
+            }
+            current_joint_state = last_joint_state_;
+        }
+
+        // ── Check MoveIt service ──────────────────────────────────
         if (!plan_client_->wait_for_service(std::chrono::seconds(2)))
         {
             response->success = false;
@@ -117,29 +157,23 @@ private:
             return;
         }
 
-		const std::string tip = tipLink(group, request->tip_link);
-		if (tip.empty())
-		{
-			response->success = false;
-			response->message = "Invalid tip_link '" + request->tip_link + "' for group '" + group + "'";
-			return;
-		}
-
+        // ── Build request ─────────────────────────────────────────
         auto srv_req = std::make_shared<GetMotionPlan::Request>();
         auto& req    = srv_req->motion_plan_request;
 
         req.group_name            = group;
-        req.allowed_planning_time = request->planning_time > 0.0 ? request->planning_time : 5.0;
+        req.allowed_planning_time = request->planning_time > 0.0
+                                        ? request->planning_time : 5.0;
         req.num_planning_attempts = 3;
-        req.start_state.joint_state = last_joint_state_;
+        req.start_state.joint_state = current_joint_state;
 
         req.workspace_parameters.header.frame_id = "base_link";
         req.workspace_parameters.min_corner.x = -2.0;
-		req.workspace_parameters.min_corner.y = -2.0;
-		req.workspace_parameters.min_corner.z = -2.0;
-		req.workspace_parameters.max_corner.x = 2.0;
-		req.workspace_parameters.max_corner.y = 2.0;
-		req.workspace_parameters.max_corner.z = 2.0;
+        req.workspace_parameters.min_corner.y = -2.0;
+        req.workspace_parameters.min_corner.z = -2.0;
+        req.workspace_parameters.max_corner.x =  2.0;
+        req.workspace_parameters.max_corner.y =  2.0;
+        req.workspace_parameters.max_corner.z =  2.0;
 
         // Position constraint
         moveit_msgs::msg::PositionConstraint pos;
@@ -168,50 +202,53 @@ private:
         goal.orientation_constraints.push_back(ori);
         req.goal_constraints.push_back(goal);
 
-        std::mutex mtx;
-        std::condition_variable cv;
-        bool done = false;
-        moveit_msgs::srv::GetMotionPlan::Response::SharedPtr result;
+        auto state = std::make_shared<PlanState>();
 
         plan_client_->async_send_request(srv_req,
-            [&](rclcpp::Client<GetMotionPlan>::SharedFuture future) {
-                result = future.get();
-                done   = true;
-                cv.notify_one();
+            [state](rclcpp::Client<GetMotionPlan>::SharedFuture future)
+            {
+                std::lock_guard<std::mutex> lock(state->mtx);
+                state->result = future.get();
+                state->done   = true;
+                state->cv.notify_one();
             });
 
-        std::unique_lock<std::mutex> lock(mtx);
-        if (!cv.wait_for(lock,
-                std::chrono::seconds((int)req.allowed_planning_time + 1),
-                [&]{ return done; }))
+        const int timeout_s = static_cast<int>(req.allowed_planning_time) + 1;
+
+        std::unique_lock<std::mutex> lock(state->mtx);
+        if (!state->cv.wait_for(lock,
+                std::chrono::seconds(timeout_s),
+                [&state]{ return state->done; }))
         {
             response->success = false;
             response->message = "Planning timeout";
-            RCLCPP_ERROR(this->get_logger(), "Planning timeout");
+            RCLCPP_ERROR(this->get_logger(), "Planning timeout after %d s", timeout_s);
             return;
         }
 
-        if (!result ||
-            result->motion_plan_response.error_code.val !=
+        // ── Evaluate response ─────────────────────────────────────
+        if (!state->result ||
+            state->result->motion_plan_response.error_code.val !=
             moveit_msgs::msg::MoveItErrorCodes::SUCCESS)
         {
             response->success = false;
-            response->message = result
+            response->message = state->result
                 ? "Planning failed with error code: " +
-                  std::to_string(result->motion_plan_response.error_code.val)
+                  std::to_string(state->result->motion_plan_response.error_code.val)
                 : "Null response from planner";
             RCLCPP_WARN(this->get_logger(), "%s", response->message.c_str());
             return;
         }
 
-        const auto& traj = result->motion_plan_response.trajectory.joint_trajectory;
+        const auto& traj =
+            state->result->motion_plan_response.trajectory.joint_trajectory;
 
-		if (traj.points.empty())
-		{
-			response->success = false;
-			response->message = "Empty trajectory";
-			return;
-		}
+        if (traj.points.empty())
+        {
+            response->success = false;
+            response->message = "Empty trajectory";
+            return;
+        }
 
         RCLCPP_INFO(this->get_logger(),
             "Plan found: %zu waypoints, %zu joints",
@@ -219,21 +256,17 @@ private:
 
         response->joint_names = traj.joint_names;
         for (const auto& p : traj.points)
-        {
-            for (double pos : p.positions)
-                response->waypoints.push_back(pos);
-        }
+            for (double p_val : p.positions)
+                response->waypoints.push_back(p_val);
 
-		size_t num_joints = traj.joint_names.size();
-		size_t num_points = traj.points.size();
-
-		RCLCPP_INFO(this->get_logger(),
-			"Flattened trajectory: %zu points × %zu joints = %zu values",
-			num_points, num_joints, response->waypoints.size());
+        RCLCPP_INFO(this->get_logger(),
+            "Flattened trajectory: %zu points × %zu joints = %zu values",
+            traj.points.size(), traj.joint_names.size(),
+            response->waypoints.size());
 
         response->success = true;
         response->message = "Plan found: " +
-            std::to_string(traj.points.size()) + " waypoints";
+                            std::to_string(traj.points.size()) + " waypoints";
     }
 };
 
