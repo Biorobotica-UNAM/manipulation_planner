@@ -9,6 +9,8 @@
 #include "manipulation_planner_interfaces/srv/plan_trajectory.hpp"
 #include <mutex>
 #include <condition_variable>
+#include <unordered_map>
+#include <unordered_set>
 
 using std::placeholders::_1;
 using std::placeholders::_2;
@@ -51,15 +53,39 @@ private:
     sensor_msgs::msg::JointState last_joint_state_;
     bool joint_state_received_ = false;
 
-    std::string tipLink(const std::string& group) const
-    {
-        if (group == "left_arm_group")  return "left_grab_object_link";
-        if (group == "right_arm_group") return "right_grab_object_link";
+    std::string tipLink(const std::string& group, const std::string& requested_tip) const
+	{
+		static const std::unordered_map<std::string, std::unordered_set<std::string>> valid_tips = {
+		    {"left_arm_group",  {"left_grab_object_link",  "left_pinch_object_link"}},
+		    {"right_arm_group", {"right_grab_object_link", "right_pinch_object_link"}},
+		};
 
-        RCLCPP_WARN(this->get_logger(),
-            "Unknown planning group '%s', defaulting to right_grab_object_link", group.c_str());
-        return "right_grab_object_link";
-    }
+		auto group_it = valid_tips.find(group);
+		if (group_it == valid_tips.end())
+		{
+		    RCLCPP_ERROR(this->get_logger(),
+		        "Unknown planning group '%s'. Valid groups: left_arm_group, right_arm_group.",
+		        group.c_str());
+		    return "";
+		}
+
+		const auto& allowed = group_it->second;
+		if (requested_tip.empty() || allowed.find(requested_tip) == allowed.end())
+		{
+		    RCLCPP_ERROR(this->get_logger(),
+		        "Invalid or missing tip_link '%s' for group '%s'. "
+		        "Valid tips for this group: %s.",
+		        requested_tip.c_str(), group.c_str(),
+		        [&]() {
+		            std::string s;
+		            for (const auto& t : allowed) s += t + " ";
+		            return s;
+		        }().c_str());
+		    return "";
+		}
+
+		return requested_tip;
+	}
 
     void jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
     {
@@ -91,7 +117,13 @@ private:
             return;
         }
 
-        const std::string tip = tipLink(group);
+		const std::string tip = tipLink(group, request->tip_link);
+		if (tip.empty())
+		{
+			response->success = false;
+			response->message = "Invalid tip_link '" + request->tip_link + "' for group '" + group + "'";
+			return;
+		}
 
         auto srv_req = std::make_shared<GetMotionPlan::Request>();
         auto& req    = srv_req->motion_plan_request;
