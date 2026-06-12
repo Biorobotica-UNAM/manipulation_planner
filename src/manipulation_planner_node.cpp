@@ -164,7 +164,7 @@ private:
         req.group_name            = group;
         req.allowed_planning_time = request->planning_time > 0.0
                                         ? request->planning_time : 5.0;
-        req.num_planning_attempts = 3;
+        req.num_planning_attempts = 10;
         req.start_state.joint_state = current_joint_state;
 
         req.workspace_parameters.header.frame_id = "base_link";
@@ -183,7 +183,7 @@ private:
 
         shape_msgs::msg::SolidPrimitive sphere;
         sphere.type       = shape_msgs::msg::SolidPrimitive::SPHERE;
-        sphere.dimensions = {0.01};
+        sphere.dimensions = {0.003};
         pos.constraint_region.primitives.push_back(sphere);
         pos.constraint_region.primitive_poses.push_back(request->target_pose.pose);
 
@@ -192,9 +192,9 @@ private:
         ori.header                    = request->target_pose.header;
         ori.link_name                 = tip;
         ori.orientation               = request->target_pose.pose.orientation;
-        ori.absolute_x_axis_tolerance = 0.05;
-        ori.absolute_y_axis_tolerance = 0.05;
-        ori.absolute_z_axis_tolerance = 0.05;
+        ori.absolute_x_axis_tolerance = 0.01;
+        ori.absolute_y_axis_tolerance = 0.01;
+        ori.absolute_z_axis_tolerance = 0.01;
         ori.weight                    = 1.0;
 
         moveit_msgs::msg::Constraints goal;
