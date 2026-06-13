@@ -1,4 +1,5 @@
 #include <rclcpp/rclcpp.hpp>
+#include <rclcpp/parameter_client.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <moveit_msgs/srv/get_motion_plan.hpp>
@@ -38,6 +39,8 @@ public:
         this->declare_parameter<std::string>(
             "cloud_filter_enable_service", "/manipulation/cloud_filter/enable");
         this->declare_parameter<std::string>(
+            "cloud_filter_node", "/manipulation/cloud_filter");
+        this->declare_parameter<std::string>(
             "clear_octomap_service", "/manipulation/clear_octomap");
         this->declare_parameter<double>("cloud_filter_warmup_sec", 1.2);
         this->declare_parameter<double>("cloud_filter_service_timeout_sec", 0.5);
@@ -46,6 +49,8 @@ public:
         clear_octomap_on_plan_ = this->get_parameter("clear_octomap_on_plan").as_bool();
         cloud_filter_enable_service_ =
             this->get_parameter("cloud_filter_enable_service").as_string();
+        cloud_filter_node_ =
+            this->get_parameter("cloud_filter_node").as_string();
         clear_octomap_service_ =
             this->get_parameter("clear_octomap_service").as_string();
         cloud_filter_warmup_sec_ =
@@ -73,6 +78,8 @@ public:
             clear_octomap_service_,
             rmw_qos_profile_services_default,
             client_cb_group_);
+        cloud_filter_params_client_ =
+            std::make_shared<rclcpp::AsyncParametersClient>(this, cloud_filter_node_);
 
         srv_ = this->create_service<PlanTrajectory>(
             "plan_trajectory",
@@ -87,6 +94,7 @@ private:
     rclcpp::Client<GetMotionPlan>::SharedPtr                      plan_client_;
     rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr             cloud_filter_client_;
     rclcpp::Client<std_srvs::srv::Empty>::SharedPtr               clear_octomap_client_;
+    std::shared_ptr<rclcpp::AsyncParametersClient>                cloud_filter_params_client_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_sub_;
     rclcpp::CallbackGroup::SharedPtr                              client_cb_group_;
     rclcpp::CallbackGroup::SharedPtr                              srv_cb_group_;
@@ -98,6 +106,7 @@ private:
     bool        use_cloud_filter_ = true;
     bool        clear_octomap_on_plan_ = true;
     std::string cloud_filter_enable_service_;
+    std::string cloud_filter_node_;
     std::string clear_octomap_service_;
     double      cloud_filter_warmup_sec_ = 1.2;
     double      cloud_filter_service_timeout_sec_ = 0.5;
@@ -233,13 +242,61 @@ private:
         }
     }
 
-    void prepareCloudFilterForPlanning()
+    void configureTargetExclusion(
+        bool enabled,
+        const geometry_msgs::msg::PoseStamped& center,
+        double radius_xy,
+        double height_z)
+    {
+        // La exclusion se manda como parametros porque el filtro es quien ve la
+        // nube. El centro viene de Take en base_link, usando la pose original
+        // del objeto antes del offset de agarre.
+        if (!use_cloud_filter_)
+            return;
+
+        if (!cloud_filter_params_client_->wait_for_service(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::duration<double>(
+                        std::max(0.0, cloud_filter_service_timeout_sec_)))))
+        {
+            RCLCPP_WARN(
+                this->get_logger(),
+                "Manipulation cloud filter parameter service unavailable: %s",
+                cloud_filter_node_.c_str());
+            return;
+        }
+
+        std::vector<rclcpp::Parameter> params;
+        params.emplace_back("target_exclusion_enabled", enabled);
+        params.emplace_back("target_exclusion_x", center.pose.position.x);
+        params.emplace_back("target_exclusion_y", center.pose.position.y);
+        params.emplace_back("target_exclusion_z", center.pose.position.z);
+        params.emplace_back("target_exclusion_radius_xy", std::max(0.0, radius_xy));
+        params.emplace_back("target_exclusion_height_z", std::max(0.0, height_z));
+
+        auto future = cloud_filter_params_client_->set_parameters(params);
+        const auto timeout =
+            std::chrono::duration<double>(std::max(0.0, cloud_filter_service_timeout_sec_));
+        if (future.wait_for(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(timeout)) !=
+            std::future_status::ready)
+        {
+            RCLCPP_WARN(this->get_logger(), "Timeout while configuring target exclusion");
+        }
+    }
+
+    void prepareCloudFilterForPlanning(const PlanTrajectory::Request& request)
     {
         if (!use_cloud_filter_)
             return;
 
         // Orden intencional: prender filtro, limpiar octomap, esperar unas
         // muestras filtradas y entonces llamar a MoveIt.
+        configureTargetExclusion(
+            request.enable_target_exclusion,
+            request.target_exclusion_center,
+            request.target_exclusion_radius_xy,
+            request.target_exclusion_height_z);
         setCloudFilter(true);
         clearOctomap();
 
@@ -256,6 +313,8 @@ private:
         if (!use_cloud_filter_)
             return;
         setCloudFilter(false);
+        geometry_msgs::msg::PoseStamped empty_center;
+        configureTargetExclusion(false, empty_center, 0.0, 0.0);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -303,7 +362,7 @@ private:
             return;
         }
 
-        prepareCloudFilterForPlanning();
+        prepareCloudFilterForPlanning(*request);
 
         // ── Build request ─────────────────────────────────────────
         auto srv_req = std::make_shared<GetMotionPlan::Request>();
