@@ -4,6 +4,7 @@ project(manipulation_planner)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(manipulation_planner_interfaces REQUIRED)
 find_package(moveit_ros_planning_interface REQUIRED)
 find_package(moveit_core REQUIRED)
@@ -15,6 +16,7 @@ add_executable(manipulation_planner_node
 ament_target_dependencies(manipulation_planner_node
   rclcpp
   geometry_msgs
+  std_srvs
   manipulation_planner_interfaces
   moveit_ros_planning_interface
   moveit_core

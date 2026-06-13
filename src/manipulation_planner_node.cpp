@@ -5,11 +5,16 @@
 #include <moveit_msgs/msg/constraints.hpp>
 #include <moveit_msgs/msg/position_constraint.hpp>
 #include <moveit_msgs/msg/orientation_constraint.hpp>
+#include <std_srvs/srv/empty.hpp>
+#include <std_srvs/srv/set_bool.hpp>
 #include <shape_msgs/msg/solid_primitive.hpp>
 #include "manipulation_planner_interfaces/srv/plan_trajectory.hpp"
+#include <algorithm>
+#include <future>
 #include <mutex>
 #include <condition_variable>
 #include <memory>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -25,6 +30,29 @@ public:
     {
         RCLCPP_INFO(this->get_logger(), "Initializing manipulation_planner_node...");
 
+        // El filtro de nube vive en manipulation_tools y normalmente esta
+        // apagado. Este planner lo activa solo durante la ventana de planeacion
+        // para que MoveIt actualice su octomap con el ROI de manipulacion.
+        this->declare_parameter<bool>("use_cloud_filter", true);
+        this->declare_parameter<bool>("clear_octomap_on_plan", true);
+        this->declare_parameter<std::string>(
+            "cloud_filter_enable_service", "/manipulation/cloud_filter/enable");
+        this->declare_parameter<std::string>(
+            "clear_octomap_service", "/manipulation/clear_octomap");
+        this->declare_parameter<double>("cloud_filter_warmup_sec", 1.2);
+        this->declare_parameter<double>("cloud_filter_service_timeout_sec", 0.5);
+
+        use_cloud_filter_ = this->get_parameter("use_cloud_filter").as_bool();
+        clear_octomap_on_plan_ = this->get_parameter("clear_octomap_on_plan").as_bool();
+        cloud_filter_enable_service_ =
+            this->get_parameter("cloud_filter_enable_service").as_string();
+        clear_octomap_service_ =
+            this->get_parameter("clear_octomap_service").as_string();
+        cloud_filter_warmup_sec_ =
+            this->get_parameter("cloud_filter_warmup_sec").as_double();
+        cloud_filter_service_timeout_sec_ =
+            this->get_parameter("cloud_filter_service_timeout_sec").as_double();
+
         client_cb_group_ = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
         srv_cb_group_    = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
 
@@ -35,6 +63,16 @@ public:
         plan_client_ = this->create_client<GetMotionPlan>(
             "/manipulation/plan_kinematic_path",
             rmw_qos_profile_services_default, client_cb_group_);
+
+        cloud_filter_client_ = this->create_client<std_srvs::srv::SetBool>(
+            cloud_filter_enable_service_,
+            rmw_qos_profile_services_default,
+            client_cb_group_);
+
+        clear_octomap_client_ = this->create_client<std_srvs::srv::Empty>(
+            clear_octomap_service_,
+            rmw_qos_profile_services_default,
+            client_cb_group_);
 
         srv_ = this->create_service<PlanTrajectory>(
             "plan_trajectory",
@@ -47,6 +85,8 @@ public:
 private:
     rclcpp::Service<PlanTrajectory>::SharedPtr                    srv_;
     rclcpp::Client<GetMotionPlan>::SharedPtr                      plan_client_;
+    rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr             cloud_filter_client_;
+    rclcpp::Client<std_srvs::srv::Empty>::SharedPtr               clear_octomap_client_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_sub_;
     rclcpp::CallbackGroup::SharedPtr                              client_cb_group_;
     rclcpp::CallbackGroup::SharedPtr                              srv_cb_group_;
@@ -54,6 +94,13 @@ private:
     sensor_msgs::msg::JointState last_joint_state_;
     bool                         joint_state_received_ = false;
     std::mutex                   joint_state_mutex_;
+
+    bool        use_cloud_filter_ = true;
+    bool        clear_octomap_on_plan_ = true;
+    std::string cloud_filter_enable_service_;
+    std::string clear_octomap_service_;
+    double      cloud_filter_warmup_sec_ = 1.2;
+    double      cloud_filter_service_timeout_sec_ = 0.5;
 
     struct PlanState
     {
@@ -112,6 +159,105 @@ private:
         joint_state_received_ = true;
     }
 
+    bool setCloudFilter(bool enabled)
+    {
+        // Servicio /manipulation/cloud_filter/enable: al habilitarlo, el filtro
+        // se suscribe al Kinect; al deshabilitarlo, suelta la suscripcion.
+        if (!use_cloud_filter_)
+            return true;
+
+        const auto timeout =
+            std::chrono::duration<double>(std::max(0.0, cloud_filter_service_timeout_sec_));
+        if (!cloud_filter_client_->wait_for_service(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(timeout)))
+        {
+            RCLCPP_WARN(
+                this->get_logger(),
+                "Manipulation cloud filter service unavailable: %s",
+                cloud_filter_enable_service_.c_str());
+            return false;
+        }
+
+        auto req = std::make_shared<std_srvs::srv::SetBool::Request>();
+        req->data = enabled;
+        auto future = cloud_filter_client_->async_send_request(req);
+        if (future.wait_for(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(timeout)) !=
+            std::future_status::ready)
+        {
+            RCLCPP_WARN(
+                this->get_logger(),
+                "Timeout while setting manipulation cloud filter to %s",
+                enabled ? "enabled" : "disabled");
+            return false;
+        }
+
+        const auto response = future.get();
+        if (!response->success)
+        {
+            RCLCPP_WARN(
+                this->get_logger(),
+                "Manipulation cloud filter rejected request: %s",
+                response->message.c_str());
+            return false;
+        }
+        return true;
+    }
+
+    void clearOctomap()
+    {
+        // Antes de cada plan limpiamos el octomap para no arrastrar obstaculos
+        // viejos de una pose/escena anterior.
+        if (!clear_octomap_on_plan_)
+            return;
+
+        const auto timeout =
+            std::chrono::duration<double>(std::max(0.0, cloud_filter_service_timeout_sec_));
+        if (!clear_octomap_client_->wait_for_service(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(timeout)))
+        {
+            RCLCPP_WARN(
+                this->get_logger(),
+                "MoveIt clear_octomap service unavailable: %s",
+                clear_octomap_service_.c_str());
+            return;
+        }
+
+        auto req = std::make_shared<std_srvs::srv::Empty::Request>();
+        auto future = clear_octomap_client_->async_send_request(req);
+        if (future.wait_for(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(timeout)) !=
+            std::future_status::ready)
+        {
+            RCLCPP_WARN(this->get_logger(), "Timeout while clearing MoveIt octomap");
+        }
+    }
+
+    void prepareCloudFilterForPlanning()
+    {
+        if (!use_cloud_filter_)
+            return;
+
+        // Orden intencional: prender filtro, limpiar octomap, esperar unas
+        // muestras filtradas y entonces llamar a MoveIt.
+        setCloudFilter(true);
+        clearOctomap();
+
+        const auto warmup =
+            std::chrono::duration<double>(std::max(0.0, cloud_filter_warmup_sec_));
+        std::this_thread::sleep_for(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(warmup));
+    }
+
+    void finishCloudFilterForPlanning()
+    {
+        // Al terminar la respuesta de MoveIt, el Kinect deja de pasar por este
+        // filtro dedicado para no gastar recursos fuera de manipulacion.
+        if (!use_cloud_filter_)
+            return;
+        setCloudFilter(false);
+    }
+
     // ─────────────────────────────────────────────────────────────
     //  planTrajectory
     // ─────────────────────────────────────────────────────────────
@@ -156,6 +302,8 @@ private:
             response->message = "MoveIt planning service unavailable";
             return;
         }
+
+        prepareCloudFilterForPlanning();
 
         // ── Build request ─────────────────────────────────────────
         auto srv_req = std::make_shared<GetMotionPlan::Request>();
@@ -220,11 +368,14 @@ private:
                 std::chrono::seconds(timeout_s),
                 [&state]{ return state->done; }))
         {
+            finishCloudFilterForPlanning();
             response->success = false;
             response->message = "Planning timeout";
             RCLCPP_ERROR(this->get_logger(), "Planning timeout after %d s", timeout_s);
             return;
         }
+
+        finishCloudFilterForPlanning();
 
         // ── Evaluate response ─────────────────────────────────────
         if (!state->result ||
