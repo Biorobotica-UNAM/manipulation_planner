@@ -10,6 +10,10 @@
       output="screen">
       <param name="cloud_filter_service_timeout_sec" value="1.5"/>
       <param name="cloud_filter_warmup_sec" value="1.2"/>
+      <!-- Tolerancias del goal de MoveIt. Se relajan porque la pose viene de
+           vision y no debe exigir una posicion/orientacion milimetrica. -->
+      <param name="goal_position_tolerance_m" value="0.015"/>
+      <param name="goal_orientation_tolerance_rad" value="0.10"/>
     </node>
   </group>
 

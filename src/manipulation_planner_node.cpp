@@ -44,6 +44,8 @@ public:
             "clear_octomap_service", "/manipulation/clear_octomap");
         this->declare_parameter<double>("cloud_filter_warmup_sec", 1.2);
         this->declare_parameter<double>("cloud_filter_service_timeout_sec", 1.5);
+        this->declare_parameter<double>("goal_position_tolerance_m", 0.015);
+        this->declare_parameter<double>("goal_orientation_tolerance_rad", 0.10);
 
         use_cloud_filter_ = this->get_parameter("use_cloud_filter").as_bool();
         clear_octomap_on_plan_ = this->get_parameter("clear_octomap_on_plan").as_bool();
@@ -57,6 +59,10 @@ public:
             this->get_parameter("cloud_filter_warmup_sec").as_double();
         cloud_filter_service_timeout_sec_ =
             this->get_parameter("cloud_filter_service_timeout_sec").as_double();
+        goal_position_tolerance_m_ =
+            this->get_parameter("goal_position_tolerance_m").as_double();
+        goal_orientation_tolerance_rad_ =
+            this->get_parameter("goal_orientation_tolerance_rad").as_double();
 
         client_cb_group_ = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
         srv_cb_group_    = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
@@ -110,6 +116,8 @@ private:
     std::string clear_octomap_service_;
     double      cloud_filter_warmup_sec_ = 1.2;
     double      cloud_filter_service_timeout_sec_ = 1.5;
+    double      goal_position_tolerance_m_ = 0.015;
+    double      goal_orientation_tolerance_rad_ = 0.10;
 
     struct PlanState
     {
@@ -433,6 +441,24 @@ private:
         req.workspace_parameters.max_corner.y =  2.0;
         req.workspace_parameters.max_corner.z =  2.0;
 
+        const double position_tolerance =
+            std::max(0.001, goal_position_tolerance_m_);
+        const double orientation_tolerance =
+            std::max(0.001, goal_orientation_tolerance_rad_);
+
+        RCLCPP_INFO(
+            this->get_logger(),
+            "MoveIt goal target=[%.3f %.3f %.3f] orientation=[%.3f %.3f %.3f %.3f] position_tol=%.3f orientation_tol=%.3f",
+            request->target_pose.pose.position.x,
+            request->target_pose.pose.position.y,
+            request->target_pose.pose.position.z,
+            request->target_pose.pose.orientation.x,
+            request->target_pose.pose.orientation.y,
+            request->target_pose.pose.orientation.z,
+            request->target_pose.pose.orientation.w,
+            position_tolerance,
+            orientation_tolerance);
+
         // Position constraint
         moveit_msgs::msg::PositionConstraint pos;
         pos.header    = request->target_pose.header;
@@ -441,7 +467,10 @@ private:
 
         shape_msgs::msg::SolidPrimitive sphere;
         sphere.type       = shape_msgs::msg::SolidPrimitive::SPHERE;
-        sphere.dimensions = {0.003};
+        // Radio de aceptacion alrededor de la pose objetivo. Vision puede tener
+        // pequenos errores; una esfera demasiado pequena impide que MoveIt
+        // samplee estados validos aunque el agarre sea fisicamente aceptable.
+        sphere.dimensions = {position_tolerance};
         pos.constraint_region.primitives.push_back(sphere);
         pos.constraint_region.primitive_poses.push_back(request->target_pose.pose);
 
@@ -450,9 +479,11 @@ private:
         ori.header                    = request->target_pose.header;
         ori.link_name                 = tip;
         ori.orientation               = request->target_pose.pose.orientation;
-        ori.absolute_x_axis_tolerance = 0.01;
-        ori.absolute_y_axis_tolerance = 0.01;
-        ori.absolute_z_axis_tolerance = 0.01;
+        // Tolerancia angular en radianes. La orientacion de vision describe la
+        // intencion de agarre, pero no debe ser tan estricta que bloquee IK.
+        ori.absolute_x_axis_tolerance = orientation_tolerance;
+        ori.absolute_y_axis_tolerance = orientation_tolerance;
+        ori.absolute_z_axis_tolerance = orientation_tolerance;
         ori.weight                    = 1.0;
 
         moveit_msgs::msg::Constraints goal;
