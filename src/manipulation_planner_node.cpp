@@ -43,7 +43,7 @@ public:
         this->declare_parameter<std::string>(
             "clear_octomap_service", "/manipulation/clear_octomap");
         this->declare_parameter<double>("cloud_filter_warmup_sec", 1.2);
-        this->declare_parameter<double>("cloud_filter_service_timeout_sec", 0.5);
+        this->declare_parameter<double>("cloud_filter_service_timeout_sec", 1.5);
 
         use_cloud_filter_ = this->get_parameter("use_cloud_filter").as_bool();
         clear_octomap_on_plan_ = this->get_parameter("clear_octomap_on_plan").as_bool();
@@ -109,7 +109,7 @@ private:
     std::string cloud_filter_node_;
     std::string clear_octomap_service_;
     double      cloud_filter_warmup_sec_ = 1.2;
-    double      cloud_filter_service_timeout_sec_ = 0.5;
+    double      cloud_filter_service_timeout_sec_ = 1.5;
 
     struct PlanState
     {
@@ -189,6 +189,11 @@ private:
 
         auto req = std::make_shared<std_srvs::srv::SetBool::Request>();
         req->data = enabled;
+        RCLCPP_INFO(
+            this->get_logger(),
+            "Requesting manipulation cloud filter %s",
+            enabled ? "enable" : "disable");
+
         auto future = cloud_filter_client_->async_send_request(req);
         if (future.wait_for(
                 std::chrono::duration_cast<std::chrono::nanoseconds>(timeout)) !=
@@ -210,6 +215,11 @@ private:
                 response->message.c_str());
             return false;
         }
+        RCLCPP_INFO(
+            this->get_logger(),
+            "Manipulation cloud filter %s confirmed: %s",
+            enabled ? "enable" : "disable",
+            response->message.c_str());
         return true;
     }
 
@@ -233,13 +243,16 @@ private:
         }
 
         auto req = std::make_shared<std_srvs::srv::Empty::Request>();
+        RCLCPP_INFO(this->get_logger(), "Clearing MoveIt octomap before planning");
         auto future = clear_octomap_client_->async_send_request(req);
         if (future.wait_for(
                 std::chrono::duration_cast<std::chrono::nanoseconds>(timeout)) !=
             std::future_status::ready)
         {
             RCLCPP_WARN(this->get_logger(), "Timeout while clearing MoveIt octomap");
+            return;
         }
+        RCLCPP_INFO(this->get_logger(), "MoveIt octomap clear request completed");
     }
 
     void configureTargetExclusion(
@@ -282,6 +295,20 @@ private:
             std::future_status::ready)
         {
             RCLCPP_WARN(this->get_logger(), "Timeout while configuring target exclusion");
+            return;
+        }
+
+        const auto results = future.get();
+        bool accepted = true;
+        for (const auto& result : results)
+            accepted = accepted && result.successful;
+
+        if (!accepted)
+        {
+            RCLCPP_WARN(
+                this->get_logger(),
+                "At least one target exclusion parameter was rejected by %s",
+                cloud_filter_node_.c_str());
         }
 
         if (enabled)
@@ -308,6 +335,12 @@ private:
 
         // Orden intencional: prender filtro, limpiar octomap, esperar unas
         // muestras filtradas y entonces llamar a MoveIt.
+        RCLCPP_INFO(
+            this->get_logger(),
+            "Preparing cloud filter for planning: exclusion=%s warmup=%.2f s timeout=%.2f s",
+            request.enable_target_exclusion ? "enabled" : "disabled",
+            cloud_filter_warmup_sec_,
+            cloud_filter_service_timeout_sec_);
         configureTargetExclusion(
             request.enable_target_exclusion,
             request.target_exclusion_center,
@@ -320,6 +353,7 @@ private:
             std::chrono::duration<double>(std::max(0.0, cloud_filter_warmup_sec_));
         std::this_thread::sleep_for(
             std::chrono::duration_cast<std::chrono::nanoseconds>(warmup));
+        RCLCPP_INFO(this->get_logger(), "Cloud filter warmup completed");
     }
 
     void finishCloudFilterForPlanning()
@@ -328,6 +362,7 @@ private:
         // filtro dedicado para no gastar recursos fuera de manipulacion.
         if (!use_cloud_filter_)
             return;
+        RCLCPP_INFO(this->get_logger(), "Finishing cloud filter planning window");
         setCloudFilter(false);
         geometry_msgs::msg::PoseStamped empty_center;
         configureTargetExclusion(false, empty_center, 0.0, 0.0);

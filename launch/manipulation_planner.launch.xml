@@ -7,7 +7,10 @@
     <node pkg="manipulation_planner"
       exec="manipulation_planner_node"
       name="manipulation_planner_node"
-      output="screen"/>
+      output="screen">
+      <param name="cloud_filter_service_timeout_sec" value="1.5"/>
+      <param name="cloud_filter_warmup_sec" value="1.2"/>
+    </node>
   </group>
 
 </launch>
