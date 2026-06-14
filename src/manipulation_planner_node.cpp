@@ -283,6 +283,22 @@ private:
         {
             RCLCPP_WARN(this->get_logger(), "Timeout while configuring target exclusion");
         }
+
+        if (enabled)
+        {
+            RCLCPP_INFO(
+                this->get_logger(),
+                "Target exclusion enabled center=[%.3f %.3f %.3f] radius_xy=%.3f height_z=%.3f",
+                center.pose.position.x,
+                center.pose.position.y,
+                center.pose.position.z,
+                std::max(0.0, radius_xy),
+                std::max(0.0, height_z));
+        }
+        else
+        {
+            RCLCPP_INFO(this->get_logger(), "Target exclusion disabled");
+        }
     }
 
     void prepareCloudFilterForPlanning(const PlanTrajectory::Request& request)
