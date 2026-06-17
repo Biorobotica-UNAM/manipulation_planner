@@ -46,6 +46,9 @@ public:
         this->declare_parameter<double>("cloud_filter_service_timeout_sec", 1.5);
         this->declare_parameter<double>("goal_position_tolerance_m", 0.015);
         this->declare_parameter<double>("goal_orientation_tolerance_rad", 0.10);
+        this->declare_parameter<std::string>("joint_states_topic", "/hardware/joint_states");
+        this->declare_parameter<std::string>("planning_pipeline_id", "ompl");
+        this->declare_parameter<std::string>("planner_id", "RRTConnect");
 
         use_cloud_filter_ = this->get_parameter("use_cloud_filter").as_bool();
         clear_octomap_on_plan_ = this->get_parameter("clear_octomap_on_plan").as_bool();
@@ -63,12 +66,18 @@ public:
             this->get_parameter("goal_position_tolerance_m").as_double();
         goal_orientation_tolerance_rad_ =
             this->get_parameter("goal_orientation_tolerance_rad").as_double();
+        joint_states_topic_ =
+            this->get_parameter("joint_states_topic").as_string();
+        planning_pipeline_id_ =
+            this->get_parameter("planning_pipeline_id").as_string();
+        planner_id_ =
+            this->get_parameter("planner_id").as_string();
 
         client_cb_group_ = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
         srv_cb_group_    = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
 
         joint_state_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
-            "/manipulation/joint_states", 10,
+            joint_states_topic_, 10,
             std::bind(&ManipulationPlannerNode::jointStateCallback, this, _1));
 
         plan_client_ = this->create_client<GetMotionPlan>(
@@ -92,7 +101,12 @@ public:
             std::bind(&ManipulationPlannerNode::planTrajectory, this, _1, _2),
             rmw_qos_profile_services_default, srv_cb_group_);
 
-        RCLCPP_INFO(this->get_logger(), "Manipulation planner ready");
+        RCLCPP_INFO(
+            this->get_logger(),
+            "Manipulation planner ready: joint_states_topic=%s pipeline=%s planner=%s",
+            joint_states_topic_.c_str(),
+            planning_pipeline_id_.c_str(),
+            planner_id_.c_str());
     }
 
 private:
@@ -118,6 +132,9 @@ private:
     double      cloud_filter_service_timeout_sec_ = 1.5;
     double      goal_position_tolerance_m_ = 0.015;
     double      goal_orientation_tolerance_rad_ = 0.10;
+    std::string joint_states_topic_;
+    std::string planning_pipeline_id_;
+    std::string planner_id_;
 
     struct PlanState
     {
@@ -428,6 +445,8 @@ private:
         auto& req    = srv_req->motion_plan_request;
 
         req.group_name            = group;
+        req.pipeline_id           = planning_pipeline_id_;
+        req.planner_id            = planner_id_;
         req.allowed_planning_time = request->planning_time > 0.0
                                         ? request->planning_time : 5.0;
         req.num_planning_attempts = 10;
