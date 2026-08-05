@@ -1,51 +1,83 @@
 # manipulation_planner
-This repository provides a ROS 2 package for right arm manipulation planning in Justina.
 
-## Configuration
-The right arm IK solver uses a simplified 2-link planar model with the following parameters:
-* *L1*: 0.216 m 
-* *L2*: 0.37 m 
-* *Shoulder height*: 1.07 m
+Nodo puente entre los consumidores de manipulacion de Justina y MoveIt.
 
-The trajectory planner generates fixed intermediate waypoints and appends the requested target pose as the final waypoint.
+Este paquete no ejecuta motores directamente. Recibe una pose objetivo,
+construye una solicitud de planeacion para MoveIt y devuelve la trayectoria
+articular resultante a quien la pidio.
 
-## Description
-The package contains two nodes:
+## Que hace ahora
 
-### right_arm_ik_solver
-Receives a target pose and computes the joint positions using an analytical inverse kinematics solution. If the target is outside the reachable workspace, it returns failure.
+El nodo principal es `manipulation_planner_node`.
 
-### trajectory_planner
-Receives a target pose, generates a sequence of waypoints, and for each waypoint:
-1. Calls the IK solver.
-2. Publishes the resulting joint positions to the hardware topic.
-3. Waits before proceeding to the next waypoint.
-If any IK call fails, the trajectory execution stops.
+Expone el servicio:
 
-## Interfaces
+* `/manipulation/manipulation_planner/plan_trajectory`
 
-### right_arm_ik_solver
-Service:
-* `/solve_right_arm_ik` [`manipulation_planner_interfaces::srv::SolveRightArmIK`]
+Flujo de planeacion:
 
-Request:
-* `target_pose` [`geometry_msgs::msg::PoseStamped`]
+1. Recibe una `target_pose`, el `planning_group` y el `tip_link`.
+2. Valida que el `tip_link` corresponda al grupo solicitado.
+3. Lee el estado articular actual desde la fuente canonica:
+   * `/hardware/joint_states`
+4. Prepara, si esta habilitado, el filtro de nube dedicado a manipulacion.
+5. Construye una solicitud `GetMotionPlan` para MoveIt.
+6. Fuerza la planeacion con:
+   * `pipeline_id = ompl`
+   * `planner_id = RRTConnect`
+7. Convierte la respuesta de MoveIt a listas planas de `joint_names` y
+   `waypoints`.
 
-Response:
-* `joint_positions` [`float64[]`]
-* `success` [`bool`]
-* `message` [`string`]
+## Fuente canonica de joints
 
-### trajectory_planner
+La fuente canonica del estado articular es:
 
-Service:
-* `/plan_arm_trajectory` [`manipulation_planner_interfaces::srv::PlanTrajectory`]
+* `/hardware/joint_states`
 
-Request:
-* `target_pose` [`geometry_msgs::msg::PoseStamped`]
+Antes el planner escuchaba `/manipulation/joint_states`. Eso podia crear una
+segunda verdad sobre la posicion real del robot. Ahora el topic se controla con
+el parametro:
 
-Response:
-* `success` [`bool`]
+* `joint_states_topic`
 
-Publishes:
-* `/hardware/arms/goal_pose` [`std_msgs::msg::Float64MultiArray`]
+El launch lo deja por defecto en `/hardware/joint_states`.
+
+## Planner usado
+
+La ruta de ejecucion real usa OMPL con RRTConnect:
+
+* `planning_pipeline_id = ompl`
+* `planner_id = RRTConnect`
+
+Esto se manda explicitamente en cada solicitud a MoveIt. Por eso, aunque alguna
+vista del Setup Assistant muestre otro valor en la GUI, la evidencia runtime
+debe buscarse en los logs de `move_group`, por ejemplo:
+
+* `Using planning pipeline 'ompl'`
+* `right_arm_group[RRTConnect]`
+* `geometric::RRTConnect`
+
+## Tolerancias de goal
+
+Las tolerancias de MoveIt se configuran por parametros:
+
+* `goal_position_tolerance_m`
+* `goal_orientation_tolerance_rad`
+
+Estas tolerancias evitan que una pose de vision demasiado exacta bloquee IK o
+sampling cuando una pose cercana tambien seria valida para el agarre.
+
+## Filtro de nube y objeto objetivo
+
+Cuando `use_cloud_filter` esta activo, el planner prepara una ventana corta de
+planeacion:
+
+1. configura la exclusion del objeto objetivo;
+2. activa el filtro de nube;
+3. limpia el octomap de MoveIt;
+4. espera un breve `warmup`;
+5. pide el plan a MoveIt;
+6. desactiva el filtro al terminar.
+
+En simulacion se puede lanzar con `use_cloud_filter:=false` para probar la
+cadena de manipulacion sin depender de Kinect ni octomap.

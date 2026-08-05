@@ -1,5 +1,6 @@
 <?xml version="1.0"?>
 <launch>
+  <arg name="use_cloud_filter" default="true"/>
 
   <group>
     <push-ros-namespace namespace="manipulation_planner"/>
@@ -7,7 +8,20 @@
     <node pkg="manipulation_planner"
       exec="manipulation_planner_node"
       name="manipulation_planner_node"
-      output="screen"/>
+      output="screen">
+      <param name="use_cloud_filter" value="$(var use_cloud_filter)"/>
+      <param name="cloud_filter_service_timeout_sec" value="1.5"/>
+      <param name="cloud_filter_warmup_sec" value="1.2"/>
+      <!-- Estado articular canonico: hardware publica la verdad del robot y
+           MoveIt/planner la consumen sin crear una segunda fuente. -->
+      <param name="joint_states_topic" value="/hardware/joint_states"/>
+      <param name="planning_pipeline_id" value="ompl"/>
+      <param name="planner_id" value="RRTConnect"/>
+      <!-- Tolerancias del goal de MoveIt. Se relajan porque la pose viene de
+           vision y no debe exigir una posicion/orientacion milimetrica. -->
+      <param name="goal_position_tolerance_m" value="0.015"/>
+      <param name="goal_orientation_tolerance_rad" value="0.10"/>
+    </node>
   </group>
 
 </launch>
